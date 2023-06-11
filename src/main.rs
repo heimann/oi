@@ -31,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Opening configuration...");
     } else if let Some(question) = matches.get_one::<String>("question") {
         let api_key = env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not found.");
-        
+
         let shell = env::var("SHELL").unwrap_or_else(|_| String::from("Shell"));
         let os = env::consts::OS;
 
@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let system_message = format!("You are an expert {} administrator helping a user who is using the command line. The user uses {} and {}. Provide your answer in two sentences or fewer, mindful of the fact that the answer will be presented over the command line. If the question is about a specific command to be run, provide that command in its full as the response, using a maximum of one sentence to explain the command or why that specific command.", os, shell, os);
-        
+
         let messages = json!([
             {
                 "role": "system",
@@ -66,13 +66,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let res = client.post("https://api.openai.com/v1/chat/completions")
             .headers(headers)
             .json(&body)
+            .timeout(std::time::Duration::from_secs(60))
             .send()
-            .await?;
+            .await;
 
-        let response_body: serde_json::Value = res.json().await?;
-        let response_message = response_body["choices"][0]["message"]["content"].as_str().unwrap_or("").trim();
-
-        println!("{}", response_message);
+        match res {
+            Ok(response) => {
+                let response_body: serde_json::Value = response.json().await?;
+                if let Some(response_message) = response_body["choices"][0]["message"]["content"].as_str() {
+                    println!("{}", response_message.trim());
+                } else {
+                    println!("{}", "OpenAI response not as expected.".red());
+                    return Err("OpenAI response not as expected".into());
+                }
+            },
+            Err(_) => {
+                println!("{}", "OpenAI request failed. Please try again.".red());
+                return Err("OpenAI request failed".into());
+            },
+        }
     }
 
     Ok(())
