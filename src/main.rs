@@ -1,7 +1,8 @@
-use clap::{arg, ArgAction, Command};
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
+use clap::{arg, Command, ArgAction};
+use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE, AUTHORIZATION};
 use serde_json::json;
 use std::env;
+use colored::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -13,19 +14,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .action(ArgAction::SetTrue)
                 .required(false),
         )
-        .arg(arg!([question] "The question to ask the AI").required(false))
+        .arg(
+            arg!(--debug "Print debug information to the console")
+                .action(ArgAction::SetTrue)
+                .required(false),
+        )
+        .arg(
+            arg!([question] "The question to ask the AI")
+                .required(false),
+        )
         .get_matches();
+
+    let is_debug = matches.get_flag("debug");
 
     if matches.get_flag("configure") {
         println!("Opening configuration...");
     } else if let Some(question) = matches.get_one::<String>("question") {
         let api_key = env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not found.");
-
+        
         let shell = env::var("SHELL").unwrap_or_else(|_| String::from("Shell"));
         let os = env::consts::OS;
 
-        let system_message = format!("You are an expert {} administrator helping a user who is using the command line. The user uses {} and {}. Provide your answer in two sentences or fewer, mindful of the fact that the answer will be presented over the command line. If the question is about a specific command to be run, provide that command in its full as the response, using a maximum of one sentence to explain the command or why that specific command.", os, shell, os);
+        if is_debug {
+            println!("{}", format!("OS: {}\nShell: {}\nOpenAI Key: {}", os, shell, api_key).yellow());
+        }
 
+        let system_message = format!("You are an expert {} administrator helping a user who is using the command line. The user uses {} and {}. Provide your answer in two sentences or fewer, mindful of the fact that the answer will be presented over the command line. If the question is about a specific command to be run, provide that command in its full as the response, using a maximum of one sentence to explain the command or why that specific command.", os, shell, os);
+        
         let messages = json!([
             {
                 "role": "system",
@@ -46,26 +61,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let mut headers = HeaderMap::new();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-        headers.insert(
-            AUTHORIZATION,
-            HeaderValue::from_str(&format!("Bearer {}", api_key))?,
-        );
+        headers.insert(AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {}", api_key))?);
 
-        let res = client
-            .post("https://api.openai.com/v1/chat/completions")
+        let res = client.post("https://api.openai.com/v1/chat/completions")
             .headers(headers)
             .json(&body)
             .send()
             .await?;
 
         let response_body: serde_json::Value = res.json().await?;
-        let response_message = response_body["choices"][0]["message"]["content"]
-            .as_str()
-            .unwrap_or("")
-            .trim();
+        let response_message = response_body["choices"][0]["message"]["content"].as_str().unwrap_or("").trim();
 
         println!("{}", response_message);
     }
 
     Ok(())
 }
+
